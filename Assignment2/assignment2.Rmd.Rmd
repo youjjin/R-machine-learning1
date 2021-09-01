@@ -1,0 +1,164 @@
+-------[Assignment2]-------
+* 학과 : 정보보안암호수학과
+* 학번 : 20172228
+* 이름 : 곽유진
+---------------------------
+
+#libraray load 및 setting
+```{r}
+pdf.options(family = 'Korea1deb')
+knitr::opts_chunk$set(cache=FALSE)
+library(extrafont)
+loadfonts()
+library(ggplot2)
+library(dplyr)
+library('knitr')
+options(width = 60)
+library(caret)
+library(e1071)
+library(randomForest)
+library(kernlab)
+library(readxl)
+library(reshape2)
+set.seed(43)
+```
+
+
+# 데이터 불러오기
+```{r}
+forestry_data <- read.csv('./forestry_sample.csv', header = T, sep = ',')
+names(forestry_data) <- c("spp_code", "stories", "below_crown_height", "height", "estimated_height", "DBH")
+```
+
+# 데이터 정제 및 Training_Set 분류 : Training_Set = tain_set(80%) + validation_set(20%)
+  * na(결측치)값을 빼서 사용가능한 데이터로 정제시켜준다.
+  * x : training data / y : label
+```{r}
+
+forestry_data_set <- forestry_data %>% filter(!is.na( below_crown_height + height + estimated_height + DBH))
+data_index <- createDataPartition(forestry_data_set$stories, p=0.8, list = F)
+
+train_data <- forestry_data_set[data_index, ]
+test_data <- forestry_data_set[-data_index, ]
+
+x_train <- train_data[, 3:6]
+y_train <- train_data[, 2]
+
+x_test <- test_data[, 3:6]
+y_test <- test_data[, 2]
+
+```
+
+#라벨 자료 수정
+```{r}
+y_train <- factor(y_train, levels = c('over', 'under'))
+y_test <- factor(y_test, levels = c('over', 'under'))
+```
+
+# 모델 학습 & 학습 확인
+
+1) Linear(ln) model
+```{r}
+ln_model <- train(x_train, y_train,
+                      method = 'lda',
+                      preProcess = c('center', 'scale'),
+                      metric = 'Accuracy',
+                      trControl = trainControl(method = 'cv', number = 10))
+
+y_pred_ln <- predict(ln_model, x_test)
+cf_ln <- confusionMatrix(y_pred_ln, y_test, mode = "everything")
+cf_ln
+```
+
+2)Support Vector Machine(SVM) model
+```{R}
+# Support Vector Machine
+SVM_model <- train(x_train, y_train,
+                      method = 'svmLinear',
+                      preProcess = c('center', 'scale'),
+                      metric = 'Accuracy',
+                      trControl = trainControl(method = 'cv', number = 10))
+
+y_pred_SVM <- predict(SVM_model, x_test)
+cf_SVM <- confusionMatrix(y_pred_SVM, y_test, mode = "everything")
+cf_SVM
+```
+
+3) Random Forest(RF) model
+```{R}
+# Random Forest
+RF_model <- train(x_train, y_train,
+                  method = 'rf',
+                  preProcess = c('center', 'scale'),
+                  metric = 'Accuracy',
+                  trControl = trainControl(method = 'cv', number = 10))
+
+y_pred_RF <- predict(RF_model, x_test)
+cf_RF <- confusionMatrix(y_pred_RF, y_test, mode = "everything")
+cf_RF
+```
+
+
+# 모델 평가
+```{r}
+
+pr_ln <- data.frame(cf_ln$byClass[5:7])
+pr_ln <- t(pr_ln)
+
+pr_svm <- data.frame(cf_SVM$byClass[5:7])
+pr_svm <- t(pr_svm)
+
+pr_rf <- data.frame(cf_RF$byClass[5:7])
+pr_rf <- t(pr_rf)
+
+PreRec <- rbind(pr_ln, pr_svm, pr_rf)
+
+rownames(PreRec) <- c('Linear model', 'SVM model', 'RF model')
+
+print(PreRec)
+
+
+#개발자 입장에서 가벼워서 많이 쓰는 모델 : Linear model
+#환자인데 환자가 아닌것 같다고 나올 수 있는 모델 : SVM model
+#환자가 아닌데 환자라고 나와서 필요없는 지출을 하게되는 모델 : RF model
+
+
+```
+
+```{r}
+
+forestry_test <-read.csv('./prediction_set.csv', header = T, sep = ',')
+names(forestry_test) <- c("below_crown_height", "height", "estimated_height", "DBH")
+
+forestry_test_set <- forestry_test %>% filter(!is.na(below_crown_height + height + estimated_height + DBH))
+
+test_x <- forestry_test_set[,1:4]
+ln_y <- predict(ln_model, test_x) 
+svm_y <- predict(SVM_model, test_x)
+rf_y <- predict(RF_model, test_x)
+
+ln_under <- length(which(ln_y == "under"))
+ln_over <- length(which(ln_y == "over"))
+result_matrix <- cbind(ln_over, ln_under)
+result_matrix
+
+svm_under <- length(which(svm_y == "under"))
+svm_over <- length(which(svm_y == "over"))
+result_matrix <- cbind(svm_over, svm_under)
+result_matrix
+
+rf_under <- length(which(rf_y == "under"))
+rf_over <- length(which(rf_y == "over"))
+result_matrix <- cbind(rf_over, rf_under)
+result_matrix
+
+
+result_ln <- cbind(stories=ln_y, forestry_test_set)
+result_svm <- cbind(stories=svm_y, forestry_test_set)
+result_rf <- rbind(stories=rf_y, forestry_test_set)
+
+write.csv(result_ln, "./result_ln.csv")
+write.csv(result_svm, "./result_SVM.csv")
+write.csv(result_rf, "./result_RF.csv")
+
+```
